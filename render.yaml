@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: turn2law-lawgpt
+    runtime: python
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DEEPINFRA_TOKEN
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX_NAME
+        value: caus-legal-vdb
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL_NAME
+        value: openai/gpt-oss-20b
+      - key: EMBEDDING_MODEL_NAME
+        value: Qwen/Qwen3-Embedding-0.6B
+      - key: EMBEDDING_BATCH_SIZE
+        value: 8
+      - key: LANGCHAIN_API_KEY
+        sync: false
+      - key: LANGCHAIN_TRACING_V2
+        value: true
+      - key: USER_AGENT
+        value: MyLangChainScraper/mk2
