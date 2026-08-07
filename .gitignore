@@ -1,0 +1,14 @@
+# Environment & secrets
+.env
+.env.local
+*.env
+
+# Python virtual environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Local data & logs
+*.log
+.DS_Store

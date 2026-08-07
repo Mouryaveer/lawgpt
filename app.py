@@ -13,6 +13,14 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Timeout compatibility for Python < 3.11
+if hasattr(asyncio, "timeout"):
+    asyncio_timeout = asyncio.timeout
+else:
+    import async_timeout
+    asyncio_timeout = async_timeout.timeout
+
+
 # Load environment variables
 env_path = os.path.join(os.path.dirname(__file__), '.env')
 load_dotenv(env_path)
@@ -100,7 +108,7 @@ async def process_with_queue(query: str, timeout: int = 120):
     
     try:
         # Acquire semaphore with timeout
-        async with asyncio.timeout(timeout):
+        async with asyncio_timeout(timeout):
             async with request_semaphore:
                 logger.info(f"Processing query (queue size before: {QueueStats.current_queue_size})")
                 
