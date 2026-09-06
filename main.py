@@ -42,7 +42,8 @@ if LANGCHAIN_API_KEY:
 
 # Get Pinecone and model configuration
 index_name = os.getenv("PINECONE_INDEX_NAME", "caus-legal-vdb")
-pinecone_namespace = os.getenv("PINECONE_NAMESPACE", "")
+pinecone_namespace = os.getenv("PINECONE_NAMESPACE", "new-data-v2")
+
 embedding_model_name = os.getenv("EMBEDDING_MODEL_NAME", "intfloat/e5-large-v2")
 embedding_batch_size = int(os.getenv("EMBEDDING_BATCH_SIZE", "8"))
 embedding_device = os.getenv("EMBEDDING_DEVICE", "cuda")
