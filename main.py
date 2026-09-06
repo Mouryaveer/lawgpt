@@ -109,26 +109,34 @@ class DeepInfraE5Embeddings:
             return self._fallback(exc).embed_query(text)
 
 
-if deepinfra_token:
-    try:
-        logger.info("DEEPINFRA_TOKEN detected. Using DeepInfra embeddings with model=%s", embedding_model_name)
-        embedz = DeepInfraE5Embeddings(
-            model_name=embedding_model_name,
-            api_token=deepinfra_token,
-            local_factory=lambda: E5Embeddings(
+def init_embeddings():
+    global embedding_provider
+    if deepinfra_token:
+        try:
+            logger.info("DEEPINFRA_TOKEN detected. Validating DeepInfra embeddings API with model=%s", embedding_model_name)
+            from deepinfra_embeddings import DeepInfraEmbeddings
+            deep_base = DeepInfraEmbeddings(model_name=embedding_model_name, api_token=deepinfra_token)
+            deep_base.embed_query("query: test connection")
+            logger.info("DeepInfra API authentication successful!")
+            embedding_provider = "deepinfra"
+            return DeepInfraE5Embeddings(
                 model_name=embedding_model_name,
-                batch_size=embedding_batch_size,
-            ),
-        )
-        embedding_provider = "deepinfra"
-    except Exception as exc:
-        logger.warning("DeepInfra embedding init failed (%s). Falling back to local model.", exc)
-        embedz = E5Embeddings(model_name=embedding_model_name, batch_size=embedding_batch_size)
-        embedding_provider = "local-e5"
-else:
+                api_token=deepinfra_token,
+                local_factory=lambda: E5Embeddings(
+                    model_name=embedding_model_name,
+                    batch_size=embedding_batch_size,
+                ),
+            )
+        except Exception as exc:
+            logger.warning("DeepInfra API check failed (%s). Pre-loading local HuggingFace embeddings at startup.", exc)
+
     logger.info("Using local HuggingFace embeddings with model=%s", embedding_model_name)
-    embedz = E5Embeddings(model_name=embedding_model_name, batch_size=embedding_batch_size)
+    local_emb = E5Embeddings(model_name=embedding_model_name, batch_size=embedding_batch_size)
     embedding_provider = "local-e5"
+    return local_emb
+
+embedz = init_embeddings()
+
 
 
 # # Load documents from JSONL file
@@ -173,7 +181,17 @@ prompt=hub.pull("therager4000/legal_llm_prompt_indian")
 
 
 from langchain_groq import ChatGroq
-llm = ChatGroq(model=groq_model_name, verbose=True)  # Model from environment variable
+
+def get_groq_llm(model_name: str):
+    return ChatGroq(model=model_name, verbose=True)
+
+try:
+    llm = get_groq_llm(groq_model_name)
+except Exception as exc:
+    logger.warning("Groq init failed for model %s (%s). Falling back to openai/gpt-oss-20b", groq_model_name, exc)
+    groq_model_name = "openai/gpt-oss-20b"
+    llm = get_groq_llm(groq_model_name)
+
 
 
 from langchain_core.runnables import RunnablePassthrough
@@ -230,27 +248,29 @@ def retry_on_exception(max_retries: int = 3, delay: float = 1.0, backoff: float 
 @retry_on_exception(max_retries=3, delay=1.0, backoff=1.5)
 def ragu(query: str) -> str:
     """
-    RAG Urban Generation - Process a query through the RAG chain.
-    
-    This function retrieves relevant legal documents from Pinecone and generates
-    a response using the Groq LLM. Includes automatic retry logic for resilience.
-    
-    Args:
-        query: The legal query to process
-        
-    Returns:
-        The generated response from the LLM
-        
-    Raises:
-        Exception: If all retry attempts fail
+    RAG Generation - Process a query through the RAG chain.
     """
+    global rag_chain, llm, groq_model_name
     try:
         logger.info(f"Starting RAG processing for query: {query[:100]}...")
         response = rag_chain.invoke(query)
-        logger.info(f"RAG processing completed successfully")
+        logger.info("RAG processing completed successfully")
         return response
     except Exception as e:
-        logger.error(f"Error in RAG processing: {str(e)}", exc_info=True)
+        err_msg = str(e)
+        logger.error(f"Error in RAG processing: {err_msg}", exc_info=True)
+        if "404" in err_msg or "model_not_found" in err_msg or "does not exist" in err_msg:
+            fallback_model = "openai/gpt-oss-20b"
+            if groq_model_name != fallback_model:
+                logger.warning("Switching Groq model from %s to fallback %s", groq_model_name, fallback_model)
+                groq_model_name = fallback_model
+                llm = ChatGroq(model=groq_model_name, verbose=True)
+                rag_chain = ({"context": retriever | format_docs, "question": RunnablePassthrough()}
+                             | prompt
+                             | llm
+                             | StrOutputParser())
+                return rag_chain.invoke(query)
         raise
+
 
 
