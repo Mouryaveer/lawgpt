@@ -40,5 +40,7 @@ services:
         value: 20
       - key: API_REQUEST_TIMEOUT_SECONDS
         value: 50
+      - key: WARMUP_ENABLED
+        value: false
       - key: USER_AGENT
         value: MyLangChainScraper/mk2

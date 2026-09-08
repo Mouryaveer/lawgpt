@@ -153,8 +153,12 @@ async def warmup():
         except Exception as exc:
             logger.error("Background warmup failed: %s", exc, exc_info=True)
 
-    thread = threading.Thread(target=_warm, daemon=True)
-    thread.start()
+    warmup_enabled = os.getenv("WARMUP_ENABLED", "false").lower() in {"1", "true", "yes"}
+    if warmup_enabled:
+        thread = threading.Thread(target=_warm, daemon=True)
+        thread.start()
+    else:
+        logger.info("Background warmup disabled; RAG initializes on demand.")
 
 
 class QueryRequest(BaseModel):
