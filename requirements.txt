@@ -19,7 +19,7 @@ langchain-huggingface>=0.0.1
 
 # Vector DB and LLM integrations
 pinecone-client>=5.0.0
-langchain-pinecone>=0.1.0
+ langchain-pinecone==0.2.0
 langchain-groq>=0.1.0
 
 # Web framework
