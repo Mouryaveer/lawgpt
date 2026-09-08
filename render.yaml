@@ -42,5 +42,7 @@ services:
         value: 50
       - key: WARMUP_ENABLED
         value: false
+      - key: RAG_MODE
+        value: llm-only
       - key: USER_AGENT
         value: MyLangChainScraper/mk2

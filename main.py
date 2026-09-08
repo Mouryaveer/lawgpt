@@ -55,6 +55,7 @@ embedding_provider = "unknown"
 allow_local_embedding_fallback = os.getenv("ALLOW_LOCAL_EMBEDDING_FALLBACK", "true").lower() in {"1", "true", "yes"}
 rag_fallback_enabled = os.getenv("RAG_FALLBACK_ENABLED", "true").lower() in {"1", "true", "yes"}
 rag_invoke_timeout_seconds = float(os.getenv("RAG_INVOKE_TIMEOUT_SECONDS", "20"))
+rag_mode = os.getenv("RAG_MODE", "rag").lower()
 
 # ── Lazy globals ────────────────────────────────────────────────────────────
 # Nothing heavy is initialised at import time. Everything is created on the
@@ -196,6 +197,9 @@ def get_rag_chain():
 
     if _initialized:
         return _rag_chain
+
+    if rag_mode in {"llm-only", "llm_only", "disabled"}:
+        return _build_llm_only_chain()
 
     logger.info("First request received — initialising RAG stack...")
     try:
