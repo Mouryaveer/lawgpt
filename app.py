@@ -212,7 +212,7 @@ async def process_query(request: QueryRequest):
 
     response = await process_with_queue(
         request.query,
-        timeout=120
+        timeout=int(os.getenv("API_REQUEST_TIMEOUT_SECONDS", "50"))
     )
 
     return QueryResponse(

@@ -4,6 +4,7 @@ import logging
 import time
 from typing import Callable
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dotenv import load_dotenv
 from langchain_community.docstore.document import Document
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -53,6 +54,7 @@ retriever_top_k = int(os.getenv("RETRIEVER_TOP_K", "6"))
 embedding_provider = "unknown"
 allow_local_embedding_fallback = os.getenv("ALLOW_LOCAL_EMBEDDING_FALLBACK", "true").lower() in {"1", "true", "yes"}
 rag_fallback_enabled = os.getenv("RAG_FALLBACK_ENABLED", "true").lower() in {"1", "true", "yes"}
+rag_invoke_timeout_seconds = float(os.getenv("RAG_INVOKE_TIMEOUT_SECONDS", "20"))
 
 # ── Lazy globals ────────────────────────────────────────────────────────────
 # Nothing heavy is initialised at import time. Everything is created on the
@@ -213,8 +215,12 @@ def get_rag_chain():
         )
 
         _retriever = _vector_store.as_retriever(search_kwargs={"k": retriever_top_k})
-        from langchain import hub
-        _prompt = hub.pull("therager4000/legal_llm_prompt_indian")
+        from langchain_core.prompts import ChatPromptTemplate
+
+        _prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are Turn2Law, an Indian legal information assistant. Use the supplied context when it is relevant. Answer cautiously and do not invent citations."),
+            ("human", "Context:\n{context}\n\nQuestion: {question}"),
+        ])
         from langchain_groq import ChatGroq
         try:
             _llm = ChatGroq(model=groq_model_name, verbose=True)
@@ -242,6 +248,20 @@ def get_rag_chain():
             return _build_llm_only_chain()
         raise
 
+def _invoke_with_timeout(chain, query: str):
+    """Run retrieval/generation with a deadline so one provider cannot hang the API."""
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(chain.invoke, query)
+    try:
+        return future.result(timeout=rag_invoke_timeout_seconds)
+    except FutureTimeout as exc:
+        future.cancel()
+        raise TimeoutError(
+            f"RAG invocation exceeded {rag_invoke_timeout_seconds:g} seconds"
+        ) from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
 def retry_on_exception(max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
     def decorator(func: Callable):
         @wraps(func)
@@ -268,7 +288,7 @@ def retry_on_exception(max_retries: int = 3, delay: float = 1.0, backoff: float 
     return decorator
 
 
-@retry_on_exception(max_retries=1, delay=0.5, backoff=1.5)
+@retry_on_exception(max_retries=0, delay=0.5, backoff=1.5)
 def ragu(query: str) -> str:
     """
     RAG Generation — process a query through the RAG chain.
@@ -276,16 +296,20 @@ def ragu(query: str) -> str:
     """
     global _rag_chain, _llm, groq_model_name
 
-    chain = get_rag_chain()
-
     try:
+        chain = get_rag_chain()
         logger.info(f"Starting RAG processing for query: {query[:100]}...")
-        response = chain.invoke(query)
+        response = _invoke_with_timeout(chain, query)
         logger.info("RAG processing completed successfully")
         return response
     except Exception as e:
         err_msg = str(e)
         logger.error(f"Error in RAG processing: {err_msg}", exc_info=True)
+        if rag_fallback_enabled and embedding_provider != "llm-only-fallback":
+            logger.warning("RAG invocation failed; switching to LLM-only fallback: %s", err_msg)
+            fallback_chain = _build_llm_only_chain()
+            return _invoke_with_timeout(fallback_chain, query)
+
         if "404" in err_msg or "model_not_found" in err_msg or "does not exist" in err_msg:
             fallback_model = "openai/gpt-oss-20b"
             if groq_model_name != fallback_model:

@@ -36,5 +36,9 @@ services:
         value: true
       - key: DEEPINFRA_TIMEOUT_SECONDS
         value: 8
+      - key: RAG_INVOKE_TIMEOUT_SECONDS
+        value: 20
+      - key: API_REQUEST_TIMEOUT_SECONDS
+        value: 50
       - key: USER_AGENT
         value: MyLangChainScraper/mk2
