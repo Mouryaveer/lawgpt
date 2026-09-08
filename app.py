@@ -43,6 +43,7 @@ request_semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 request_queue = deque()
 queue_lock = asyncio.Lock()
 
+
 class QueueStats:
     total_requests = 0
     completed_requests = 0
@@ -50,13 +51,20 @@ class QueueStats:
     current_queue_size = 0
 
     @classmethod
-    def increment_total(cls): cls.total_requests += 1
+    def increment_total(cls):
+        cls.total_requests += 1
+
     @classmethod
-    def increment_completed(cls): cls.completed_requests += 1
+    def increment_completed(cls):
+        cls.completed_requests += 1
+
     @classmethod
-    def increment_failed(cls): cls.failed_requests += 1
+    def increment_failed(cls):
+        cls.failed_requests += 1
+
     @classmethod
-    def set_queue_size(cls, size): cls.current_queue_size = size
+    def set_queue_size(cls, size):
+        cls.current_queue_size = size
 
 
 async def add_to_queue(query: str):
@@ -67,6 +75,7 @@ async def add_to_queue(query: str):
             "status": "queued"
         })
         QueueStats.set_queue_size(len(request_queue))
+        logger.info(f"Queue size: {len(request_queue)}")
 
 
 async def remove_from_queue():
@@ -74,6 +83,7 @@ async def remove_from_queue():
         if request_queue:
             request_queue.popleft()
         QueueStats.set_queue_size(len(request_queue))
+        logger.info(f"Queue size: {len(request_queue)}")
 
 
 async def process_with_queue(query: str, timeout: int = 120):
@@ -81,16 +91,31 @@ async def process_with_queue(query: str, timeout: int = 120):
     try:
         async with asyncio_timeout(timeout):
             async with request_semaphore:
+                logger.info(
+                    f"Processing query (queue size: {QueueStats.current_queue_size})"
+                )
                 loop = asyncio.get_event_loop()
                 response = await loop.run_in_executor(None, ragu, query)
                 QueueStats.increment_completed()
+                logger.info("Query processed successfully")
                 return response
+
     except asyncio.TimeoutError:
         QueueStats.increment_failed()
-        raise HTTPException(status_code=504, detail="Request timeout. Please try again.")
+        logger.error("Request timeout")
+        raise HTTPException(
+            status_code=504,
+            detail="Request timeout. The query took too long to process. Please try again."
+        )
+
     except Exception as e:
         QueueStats.increment_failed()
-        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+        logger.error(f"Error processing query: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing query: {str(e)}"
+        )
+
     finally:
         await remove_from_queue()
 
@@ -115,10 +140,10 @@ app.add_middleware(
 async def warmup():
     """
     Pre-warm the RAG stack in a background thread immediately after uvicorn
-    binds the port. This way the port is open instantly (Render is happy) and
-    the model loads in the background. Queries that arrive before warmup
-    completes will still work — get_rag_chain() is idempotent and thread-safe
-    enough for our single-worker setup.
+    binds the port. Port is open instantly so Render is happy, and the heavy
+    model load (embeddings + Pinecone + LLM) happens in the background.
+    Queries that arrive before warmup finishes will trigger get_rag_chain()
+    themselves and wait — that is fine.
     """
     def _warm():
         try:
@@ -133,19 +158,36 @@ async def warmup():
 
 
 class QueryRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=1000)
-    model: Optional[str] = Field(None)
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="The legal query to process"
+    )
+    model: Optional[str] = Field(
+        None,
+        description="Optional model selection (currently not used)"
+    )
 
 
 class QueryResponse(BaseModel):
-    response: str
-    model_used: str
+    response: str = Field(
+        ...,
+        description="The generated response from the RAG system"
+    )
+    model_used: str = Field(
+        ...,
+        description="The model used for generation"
+    )
 
 
 @app.get("/")
 @app.head("/")
 async def root():
-    return {"message": "Turn2Law API is running", "status": "healthy"}
+    return {
+        "message": "Turn2Law API is running",
+        "status": "healthy"
+    }
 
 
 @app.get("/favicon.ico")
@@ -154,12 +196,29 @@ async def favicon():
     return Response(content=b"", media_type="image/x-icon")
 
 
+@app.post("/query")
+@app.get("/query")
+async def query_redirect():
+    raise HTTPException(
+        status_code=404,
+        detail="This endpoint has been moved. Please use /api/query instead."
+    )
+
+
 @app.post("/api/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
     logger.info(f"New query received: {request.query[:100]}...")
     QueueStats.increment_total()
-    response = await process_with_queue(request.query, timeout=120)
-    return QueryResponse(response=response, model_used=groq_model_name)
+
+    response = await process_with_queue(
+        request.query,
+        timeout=120
+    )
+
+    return QueryResponse(
+        response=response,
+        model_used=groq_model_name,
+    )
 
 
 @app.get("/api/health")
@@ -199,5 +258,10 @@ async def queue_status():
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.getenv("PORT", 8002))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port
+    )
