@@ -51,6 +51,8 @@ deepinfra_token = os.getenv("DEEPINFRA_TOKEN")
 groq_model_name = os.getenv("GROQ_MODEL_NAME", "openai/gpt-oss-20b")
 retriever_top_k = int(os.getenv("RETRIEVER_TOP_K", "6"))
 embedding_provider = "unknown"
+allow_local_embedding_fallback = os.getenv("ALLOW_LOCAL_EMBEDDING_FALLBACK", "true").lower() in {"1", "true", "yes"}
+rag_fallback_enabled = os.getenv("RAG_FALLBACK_ENABLED", "true").lower() in {"1", "true", "yes"}
 
 # ── Lazy globals ────────────────────────────────────────────────────────────
 # Nothing heavy is initialised at import time. Everything is created on the
@@ -101,11 +103,12 @@ class DeepInfraE5Embeddings:
         self.local_embedder = None
 
     def _fallback(self, exc: Exception):
+        if not allow_local_embedding_fallback:
+            raise RuntimeError("DeepInfra embeddings are unavailable and local fallback is disabled.") from exc
         if self.local_embedder is None:
             logger.warning("DeepInfra embedding request failed (%s). Falling back to local model.", exc)
             self.local_embedder = self.local_factory()
         return self.local_embedder
-
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         try:
             return self.base.embed_documents([f"passage: {text}" for text in texts])
@@ -138,7 +141,12 @@ def _init_embeddings():
                 )
             )
         except Exception as exc:
-            logger.warning("DeepInfra API check failed (%s). Falling back to local HuggingFace embeddings.", exc)
+            logger.warning("DeepInfra API check failed (%s).", exc)
+            if not allow_local_embedding_fallback:
+                raise RuntimeError("DeepInfra embeddings are unavailable and local fallback is disabled.") from exc
+
+    if not allow_local_embedding_fallback:
+        raise RuntimeError("No usable embedding provider is configured.")
 
     logger.info("Using local HuggingFace embeddings with model=%s", embedding_model_name)
     local_emb = E5Embeddings(model_name=embedding_model_name, batch_size=embedding_batch_size)
@@ -146,12 +154,41 @@ def _init_embeddings():
     return local_emb
 
 
+def _build_llm_only_chain():
+    """Build a degraded but responsive chain when retrieval is unavailable."""
+    global _prompt, _llm, _rag_chain, _initialized, groq_model_name, embedding_provider
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.runnables import RunnablePassthrough
+    from langchain_core.output_parsers import StrOutputParser
+    from langchain_groq import ChatGroq
+
+    _prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are Turn2Law, an Indian legal information assistant. "
+         "Answer clearly and cautiously. State that this is general legal "
+         "information, not legal advice, and do not invent citations."),
+        ("human", "Question: {question}"),
+    ])
+    try:
+        _llm = ChatGroq(model=groq_model_name, verbose=True)
+    except Exception as exc:
+        logger.warning("Groq init failed for model %s (%s). Using fallback model.", groq_model_name, exc)
+        groq_model_name = "openai/gpt-oss-20b"
+        _llm = ChatGroq(model=groq_model_name, verbose=True)
+
+    _rag_chain = (
+        {"question": RunnablePassthrough()}
+        | _prompt
+        | _llm
+        | StrOutputParser()
+    )
+    embedding_provider = "llm-only-fallback"
+    _initialized = True
+    logger.warning("Serving with LLM-only fallback; Pinecone retrieval is unavailable.")
+    return _rag_chain
+
+
 def get_rag_chain():
-    """
-    Lazily initialise the full RAG stack (embeddings → vector store →
-    retriever → LLM → chain) on the first call. Subsequent calls return the
-    cached chain immediately.
-    """
+    """Lazily initialise the RAG stack, with a fast degraded fallback."""
     global _embedz, _vector_store, _retriever, _llm, _prompt, _rag_chain
     global _initialized, groq_model_name
 
@@ -159,14 +196,10 @@ def get_rag_chain():
         return _rag_chain
 
     logger.info("First request received — initialising RAG stack...")
-
-    # 1. Embeddings
-    _embedz = _init_embeddings()
-
-    # 2. Pinecone vector store
-    pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
-    logger.info("Connecting to existing vector store...")
     try:
+        _embedz = _init_embeddings()
+        Pinecone(api_key=os.environ["PINECONE_API_KEY"])
+        logger.info("Connecting to existing vector store...")
         _vector_store = PineconeVectorStore(
             index_name=index_name,
             embedding=_embedz,
@@ -178,48 +211,36 @@ def get_rag_chain():
             index_name,
             pinecone_namespace or "<default>",
         )
-    except Exception as e:
-        logger.error(f"Failed to connect to Pinecone: {str(e)}", exc_info=True)
-        raise
 
-    # 3. Retriever
-    _retriever = _vector_store.as_retriever(search_kwargs={"k": retriever_top_k})
+        _retriever = _vector_store.as_retriever(search_kwargs={"k": retriever_top_k})
+        from langchain import hub
+        _prompt = hub.pull("therager4000/legal_llm_prompt_indian")
+        from langchain_groq import ChatGroq
+        try:
+            _llm = ChatGroq(model=groq_model_name, verbose=True)
+        except Exception as exc:
+            logger.warning("Groq init failed for model %s (%s). Falling back to openai/gpt-oss-20b", groq_model_name, exc)
+            groq_model_name = "openai/gpt-oss-20b"
+            _llm = ChatGroq(model=groq_model_name, verbose=True)
 
-    # 4. Prompt
-    from langchain import hub
-    _prompt = hub.pull("therager4000/legal_llm_prompt_indian")
-
-    # 5. LLM
-    from langchain_groq import ChatGroq
-
-    def get_groq_llm(model_name: str):
-        return ChatGroq(model=model_name, verbose=True)
-
-    try:
-        _llm = get_groq_llm(groq_model_name)
+        from langchain_core.runnables import RunnablePassthrough
+        from langchain_core.output_parsers import StrOutputParser
+        def format_docs(docs):
+            return "\n".join(doc.page_content for doc in docs)
+        _rag_chain = (
+            {"context": _retriever | format_docs, "question": RunnablePassthrough()}
+            | _prompt
+            | _llm
+            | StrOutputParser()
+        )
+        _initialized = True
+        logger.info("RAG stack initialised successfully.")
+        return _rag_chain
     except Exception as exc:
-        logger.warning("Groq init failed for model %s (%s). Falling back to openai/gpt-oss-20b", groq_model_name, exc)
-        groq_model_name = "openai/gpt-oss-20b"
-        _llm = get_groq_llm(groq_model_name)
-
-    # 6. RAG chain
-    from langchain_core.runnables import RunnablePassthrough
-    from langchain_core.output_parsers import StrOutputParser
-
-    def format_docs(docs):
-        return "\n".join(doc.page_content for doc in docs)
-
-    _rag_chain = (
-        {"context": _retriever | format_docs, "question": RunnablePassthrough()}
-        | _prompt
-        | _llm
-        | StrOutputParser()
-    )
-
-    _initialized = True
-    logger.info("RAG stack initialised successfully.")
-    return _rag_chain
-
+        logger.error("RAG stack unavailable: %s", exc, exc_info=True)
+        if rag_fallback_enabled:
+            return _build_llm_only_chain()
+        raise
 
 def retry_on_exception(max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
     def decorator(func: Callable):
@@ -247,7 +268,7 @@ def retry_on_exception(max_retries: int = 3, delay: float = 1.0, backoff: float 
     return decorator
 
 
-@retry_on_exception(max_retries=3, delay=1.0, backoff=1.5)
+@retry_on_exception(max_retries=1, delay=0.5, backoff=1.5)
 def ragu(query: str) -> str:
     """
     RAG Generation — process a query through the RAG chain.

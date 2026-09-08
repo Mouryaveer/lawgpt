@@ -33,7 +33,7 @@ class DeepInfraEmbeddings(Embeddings):
             self.api_url,
             headers=self.headers,
             json={"inputs": texts},
-            timeout=30,
+            timeout=int(os.getenv("DEEPINFRA_TIMEOUT_SECONDS", "8")),
         )
         response.raise_for_status()
         result = response.json()

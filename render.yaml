@@ -15,18 +15,26 @@ services:
       - key: PINECONE_API_KEY
         sync: false
       - key: PINECONE_INDEX_NAME
-        value: caus-legal-vdb
+        value: lawgpt-newdata
+      - key: PINECONE_NAMESPACE
+        value: new-data-v2
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL_NAME
         value: openai/gpt-oss-20b
       - key: EMBEDDING_MODEL_NAME
-        value: Qwen/Qwen3-Embedding-0.6B
+        value: intfloat/e5-large-v2
       - key: EMBEDDING_BATCH_SIZE
         value: 8
       - key: LANGCHAIN_API_KEY
         sync: false
       - key: LANGCHAIN_TRACING_V2
+        value: false
+      - key: ALLOW_LOCAL_EMBEDDING_FALLBACK
+        value: false
+      - key: RAG_FALLBACK_ENABLED
         value: true
+      - key: DEEPINFRA_TIMEOUT_SECONDS
+        value: 8
       - key: USER_AGENT
         value: MyLangChainScraper/mk2
