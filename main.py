@@ -336,10 +336,10 @@ def ragu(query: str) -> str:
     """
     global _rag_chain, _llm, groq_model_name
 
-    try:
-        if rag_mode in {"llm-only", "llm_only", "disabled"}:
-            return _direct_groq_query(query)
+    if rag_mode in {"llm-only", "llm_only", "disabled"}:
+        return _direct_groq_query(query)
 
+    try:
         chain = get_rag_chain()
         logger.info(f"Starting RAG processing for query: {query[:100]}...")
         response = _invoke_with_timeout(chain, query)
