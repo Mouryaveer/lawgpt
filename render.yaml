@@ -44,5 +44,7 @@ services:
         value: false
       - key: RAG_MODE
         value: llm-only
+      - key: GROQ_REQUEST_TIMEOUT_SECONDS
+        value: 20
       - key: USER_AGENT
         value: MyLangChainScraper/mk2

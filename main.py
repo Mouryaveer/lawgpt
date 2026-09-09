@@ -1,4 +1,5 @@
-import langchain_groq, langchain_community, langchain, os
+import os
+import requests
 import json
 import logging
 import time
@@ -6,10 +7,6 @@ from typing import Callable
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from dotenv import load_dotenv
-from langchain_community.docstore.document import Document
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_pinecone import PineconeVectorStore
-from pinecone import Pinecone
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -55,7 +52,8 @@ embedding_provider = "unknown"
 allow_local_embedding_fallback = os.getenv("ALLOW_LOCAL_EMBEDDING_FALLBACK", "true").lower() in {"1", "true", "yes"}
 rag_fallback_enabled = os.getenv("RAG_FALLBACK_ENABLED", "true").lower() in {"1", "true", "yes"}
 rag_invoke_timeout_seconds = float(os.getenv("RAG_INVOKE_TIMEOUT_SECONDS", "20"))
-rag_mode = os.getenv("RAG_MODE", "rag").lower()
+rag_mode = os.getenv("RAG_MODE", "llm-only").lower()
+groq_request_timeout_seconds = float(os.getenv("GROQ_REQUEST_TIMEOUT_SECONDS", "20"))
 
 # ── Lazy globals ────────────────────────────────────────────────────────────
 # Nothing heavy is initialised at import time. Everything is created on the
@@ -73,6 +71,7 @@ _initialized = False
 
 class E5Embeddings:
     def __init__(self, model_name: str, batch_size: int):
+        from langchain_huggingface import HuggingFaceEmbeddings
         try:
             self.base = HuggingFaceEmbeddings(
                 model_name=model_name,
@@ -203,6 +202,9 @@ def get_rag_chain():
 
     logger.info("First request received — initialising RAG stack...")
     try:
+        from langchain_pinecone import PineconeVectorStore
+        from pinecone import Pinecone
+
         _embedz = _init_embeddings()
         Pinecone(api_key=os.environ["PINECONE_API_KEY"])
         logger.info("Connecting to existing vector store...")
@@ -251,6 +253,40 @@ def get_rag_chain():
         if rag_fallback_enabled:
             return _build_llm_only_chain()
         raise
+
+def _direct_groq_query(query: str) -> str:
+    """Use Groq directly for the production fast path."""
+    response = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": groq_model_name,
+            "temperature": 0.1,
+            "max_tokens": 900,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Turn2Law, an Indian legal information assistant. "
+                        "Give cautious general legal information, explain relevant "
+                        "Indian law, and do not invent citations. State that the "
+                        "answer is not legal advice."
+                    ),
+                },
+                {"role": "user", "content": query},
+            ],
+        },
+        timeout=groq_request_timeout_seconds,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    try:
+        return payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError("Groq returned an unexpected response format.") from exc
 
 def _invoke_with_timeout(chain, query: str):
     """Run retrieval/generation with a deadline so one provider cannot hang the API."""
@@ -301,6 +337,9 @@ def ragu(query: str) -> str:
     global _rag_chain, _llm, groq_model_name
 
     try:
+        if rag_mode in {"llm-only", "llm_only", "disabled"}:
+            return _direct_groq_query(query)
+
         chain = get_rag_chain()
         logger.info(f"Starting RAG processing for query: {query[:100]}...")
         response = _invoke_with_timeout(chain, query)
