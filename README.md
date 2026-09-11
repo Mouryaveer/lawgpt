@@ -7,20 +7,20 @@ LawGPT is an evidence-first Indian legal research API. The model is not the sour
 `POST /api/query` runs:
 
 1. deterministic legal query understanding and bounded expansion;
-2. Qwen3-Embedding-4B semantic search in a versioned Pinecone namespace;
+2. Qwen3-Embedding-8B semantic search in a versioned Pinecone namespace;
 3. persistent SQLite FTS5 BM25 lexical search for provisions, articles, rules, and case names;
 4. reciprocal-rank fusion, deduplication, and configurable Cohere query-passage reranking;
 5. authority-aware evidence packing and source metadata preservation;
-6. Qwen3-32B grounded JSON generation through Groq;
+6. GPT-OSS-120B grounded JSON generation through Groq;
 7. claim-level citation verification and suppression of unsupported propositions.
 
 If a required dependency is unavailable, the API returns an explicit unavailable/insufficient-evidence result. It never silently switches to an LLM-only answer, E5 vectors, or a different production model.
 
 ## Models and data version
 
-- Generation: `qwen/qwen3-32b` through Groq (`GROQ_MODEL_NAME`).
-- Embeddings: `Qwen/Qwen3-Embedding-4B` through the configured OpenAI-compatible embedding provider.
-- Pinecone: `lawgpt-qwen3-prod`, namespace `qwen3-embedding-4b-v1` by default.
+- Generation: `openai/gpt-oss-120b` through Groq (`GROQ_MODEL_NAME`).
+- Embeddings: `Qwen/Qwen3-Embedding-8B` through the configured OpenAI-compatible embedding provider.
+- Pinecone: `lawgpt-qwen3-prod`, namespace `qwen3-embedding-8b-v1` by default.
 - Reranker: Cohere `rerank-v3.5` by default; the adapter is configurable.
 - Corpus: existing `new_data_chunked_documents.jsonl`, normalized without deleting the source data.
 
@@ -80,7 +80,7 @@ The offline suite covers query understanding, bounded expansion, BM25 exact look
 
 Render uses `render.yaml`, installs the small API/runtime dependency set, and starts `uvicorn app:app`. The BM25 SQLite artifact must be provisioned through the selected Render storage strategy; do not commit the generated index. Before production traffic, validate Pinecone dimension, namespace, vector count, metadata queries, sample retrieval, reranker access, and the exact Groq model availability.
 
-The requested Qwen3-32B model is configured exactly and is not silently replaced if the provider has retired or restricted it. If the provider does not make that model available, update provider access or explicitly choose a new approved model and update the configuration/documentation together.
+The requested GPT-OSS-120B model is configured exactly and is not silently replaced if the provider has retired or restricted it. If the provider does not make that model available, update provider access or explicitly choose a new approved model and update the configuration/documentation together.
 
 ## Security
 

@@ -18,19 +18,19 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL_NAME
-        value: qwen/qwen3-32b
+        value: openai/gpt-oss-120b
       - key: DEEPINFRA_TOKEN
         sync: false
       - key: EMBEDDING_PROVIDER
         value: deepinfra
       - key: EMBEDDING_MODEL_NAME
-        value: Qwen/Qwen3-Embedding-4B
+        value: Qwen/Qwen3-Embedding-8B
       - key: PINECONE_API_KEY
         sync: false
       - key: PINECONE_INDEX_NAME
         value: lawgpt-qwen3-prod
       - key: PINECONE_NAMESPACE
-        value: qwen3-embedding-4b-v1
+        value: qwen3-embedding-8b-v1
       - key: PINECONE_CLOUD
         value: aws
       - key: PINECONE_REGION

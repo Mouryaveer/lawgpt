@@ -4,16 +4,16 @@ The production backend is an evidence-first RAG service.
 
 ## Runtime path
 
-`app.py` exposes `/api/query`, `/api/health`, and `/api/queue-status`. `service.py` orchestrates deterministic query understanding, bounded expansion, Qwen3 embeddings, Pinecone, SQLite FTS5 BM25, reciprocal-rank fusion, Cohere reranking, authority-aware evidence packs, Groq Qwen3-32B generation, and claim-level citation verification.
+`app.py` exposes `/api/query`, `/api/health`, and `/api/queue-status`. `service.py` orchestrates deterministic query understanding, bounded expansion, Qwen3 embeddings, Pinecone, SQLite FTS5 BM25, reciprocal-rank fusion, Cohere reranking, authority-aware evidence packs, Groq GPT-OSS-120B generation, and claim-level citation verification.
 
 ## Configuration
 
 `config/settings.py` is the single configuration source. Production defaults are:
 
-- generation model: `qwen/qwen3-32b`
-- embedding model: `Qwen/Qwen3-Embedding-4B`
+- generation model: `openai/gpt-oss-120b`
+- embedding model: `Qwen/Qwen3-Embedding-8B`
 - Pinecone index: `lawgpt-qwen3-prod`
-- namespace: `qwen3-embedding-4b-v1`
+- namespace: `qwen3-embedding-8b-v1`
 - BM25: SQLite FTS5 persisted index
 - reranker: Cohere `rerank-v3.5`
 

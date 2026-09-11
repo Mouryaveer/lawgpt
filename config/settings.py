@@ -38,14 +38,14 @@ def _float(name: str, default: float) -> float:
 @dataclass(frozen=True)
 class Settings:
     # Required model and retrieval identities. These defaults are intentional.
-    generation_model: str = field(default_factory=lambda: os.getenv("GROQ_MODEL_NAME", "qwen/qwen3-32b"))
-    embedding_model: str = field(default_factory=lambda: os.getenv("EMBEDDING_MODEL_NAME", "Qwen/Qwen3-Embedding-4B"))
+    generation_model: str = field(default_factory=lambda: os.getenv("GROQ_MODEL_NAME", "openai/gpt-oss-120b"))
+    embedding_model: str = field(default_factory=lambda: os.getenv("EMBEDDING_MODEL_NAME", "Qwen/Qwen3-Embedding-8B"))
     embedding_provider: str = field(default_factory=lambda: os.getenv("EMBEDDING_PROVIDER", "deepinfra"))
     reranker_provider: str = field(default_factory=lambda: os.getenv("RERANKER_PROVIDER", "cohere"))
     reranker_model: str = field(default_factory=lambda: os.getenv("RERANKER_MODEL_NAME", "rerank-v3.5"))
 
     index_name: str = field(default_factory=lambda: os.getenv("PINECONE_INDEX_NAME", "lawgpt-qwen3-prod"))
-    namespace: str = field(default_factory=lambda: os.getenv("PINECONE_NAMESPACE", "qwen3-embedding-4b-v1"))
+    namespace: str = field(default_factory=lambda: os.getenv("PINECONE_NAMESPACE", "qwen3-embedding-8b-v1"))
     pinecone_cloud: str = field(default_factory=lambda: os.getenv("PINECONE_CLOUD", "aws"))
     pinecone_region: str = field(default_factory=lambda: os.getenv("PINECONE_REGION", "us-east-1"))
     vector_dimension: int = field(default_factory=lambda: _int("PINECONE_VECTOR_DIMENSION", 0))
