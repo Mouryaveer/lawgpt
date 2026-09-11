@@ -5,46 +5,53 @@ services:
     env: python
     region: singapore
     plan: free
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt && python -m data.ingest build-bm25
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
-      - key: DEEPINFRA_TOKEN
-        sync: false
-      - key: PINECONE_API_KEY
-        sync: false
-      - key: PINECONE_INDEX_NAME
-        value: lawgpt-newdata
-      - key: PINECONE_NAMESPACE
-        value: new-data-v2
+      - key: RAG_MODE
+        value: rag
+      - key: ENVIRONMENT
+        value: production
       - key: GROQ_API_KEY
         sync: false
       - key: GROQ_MODEL_NAME
-        value: openai/gpt-oss-20b
-      - key: EMBEDDING_MODEL_NAME
-        value: intfloat/e5-large-v2
-      - key: EMBEDDING_BATCH_SIZE
-        value: 8
-      - key: LANGCHAIN_API_KEY
+        value: qwen/qwen3-32b
+      - key: DEEPINFRA_TOKEN
         sync: false
-      - key: LANGCHAIN_TRACING_V2
-        value: false
-      - key: ALLOW_LOCAL_EMBEDDING_FALLBACK
-        value: false
-      - key: RAG_FALLBACK_ENABLED
+      - key: EMBEDDING_PROVIDER
+        value: deepinfra
+      - key: EMBEDDING_MODEL_NAME
+        value: Qwen/Qwen3-Embedding-4B
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX_NAME
+        value: lawgpt-qwen3-prod
+      - key: PINECONE_NAMESPACE
+        value: qwen3-embedding-4b-v1
+      - key: PINECONE_CLOUD
+        value: aws
+      - key: PINECONE_REGION
+        value: us-east-1
+      - key: BM25_ENABLED
         value: true
-      - key: DEEPINFRA_TIMEOUT_SECONDS
-        value: 8
-      - key: RAG_INVOKE_TIMEOUT_SECONDS
-        value: 20
-      - key: API_REQUEST_TIMEOUT_SECONDS
+      - key: BM25_DATABASE_PATH
+        value: storage/bm25_legal_v2.sqlite3
+      - key: RERANKER_REQUIRED
+        value: true
+      - key: RERANKER_PROVIDER
+        value: cohere
+      - key: RERANKER_MODEL_NAME
+        value: rerank-v3.5
+      - key: COHERE_API_KEY
+        sync: false
+      - key: CITATION_VERIFICATION_ENABLED
+        value: true
+      - key: RETRIEVAL_CANDIDATE_K
         value: 50
-      - key: WARMUP_ENABLED
-        value: false
-      - key: RAG_MODE
-        value: llm-only
-      - key: GROQ_REQUEST_TIMEOUT_SECONDS
-        value: 20
-      - key: USER_AGENT
-        value: MyLangChainScraper/mk2
+      - key: RERANKER_TOP_K
+        value: 10
+      - key: ALLOWED_ORIGINS
+        value: https://turn2law-tan.vercel.app

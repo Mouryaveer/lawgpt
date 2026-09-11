@@ -1,14 +1,25 @@
-# Environment & secrets
+# Environment and credentials
 .env
-.env.local
+.env.*
+!.env.example
 *.env
 
-# Python virtual environment
+# Python artifacts and local runtime state
 venv/
 .venv/
 __pycache__/
 *.pyc
-
-# Local data & logs
 *.log
+*.sqlite3
+storage/
+.pytest_cache/
+
+# Generated corpus/index artifacts
+*.faiss
+*.pkl
+*.pickle
+*.index
+
+# OS/editor
 .DS_Store
+.vscode/
